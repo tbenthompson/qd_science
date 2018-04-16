@@ -2,3 +2,7 @@ tags
 .ipynb_checkpoints
 *.png
 *.pdf
+results
+.cache
+__pycache__
+.pytest_cache

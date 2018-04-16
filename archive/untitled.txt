@@ -1,0 +1,75 @@
+vv = 10 ** np.linspace(-40,0,1000)
+plt.loglog(vv, eta * vv, '-.')
+for S in np.linspace(0.3, 1.0, 8):
+    ff = F(vv, 1.0, S)
+    plt.loglog(vv, ff)
+    plt.loglog(vv, dFdV(vv, 1.0, S))
+plt.show()
+
+def cross(x, y):
+    return np.array([
+        x[1] * y[2] - x[2] * y[1],
+        x[2] * y[0] - x[0] * y[2],
+        x[0] * y[1] - x[1] * y[0]
+    ])
+
+def tri_normal(tri, normalize = False):
+    n = cross(
+        [tri[2][i] - tri[0][i] for i in range(3)],
+        [tri[2][i] - tri[1][i] for i in range(3)]
+    )
+    if normalize:
+        n = n / np.linalg.norm(n)
+    return n
+
+def projection(V, b):
+    return (V.dot(b) * b) / (np.linalg.norm(b) ** 2)
+
+def current_vel(n, traction, state, V_slider_old):
+    # separate into normal stress (scalar) and shear stress (2d vector)
+    normal_stress_vec = projection(traction, n)
+    
+    #TODO: WARNININGININIG
+    #TODO: WARNININGININIG#TODO: WARNININGININIG#TODO: WARNININGININIG
+    #TODO: WARNININGININIG. Remove when I leave fullspace.
+    normal_mag = np.linalg.norm(normal_stress_vec) + additional_normal_stress
+    
+    shear_traction = traction - normal_stress_vec
+    
+    # solve the friction equations in terms of magnitudes
+    V_old_mag = np.linalg.norm(V_slider_old)
+    shear_mag = np.linalg.norm(shear_traction)
+    def f(V):
+        return shear_mag - eta * V - F(V, normal_mag, state)
+    def fp(V):
+        return -eta - dFdV(V, normal_mag, state)
+    V_mag = fsolve(f, V_old_mag, fprime = fp)[0]
+    
+    # then project back 
+    shear_dir = shear_traction / shear_mag
+    return V_mag * shear_dir
+    
+    
+
+# Rate-state friction law w/ Rice et al 2001 regularization so that 
+# it is nonsingular at V = 0
+def F(V, sigma_n, state):
+    f = a * np.arcsinh((V / (2 * V0)) * np.exp(state / a))
+    # the frictional stress is equal to the friction coefficient * the normal stress.
+    return f * sigma_n
+
+#https://www.wolframalpha.com/input/?i=d%5Ba*Q*arcsinh(x+%2F+(2*y)+*+exp(s%2Fa))%5D%2Fdx
+def dFdV(V, sigma_n, state):
+    expsa = np.exp(state / a)
+    inside_sqrt = 1 + (V * expsa / (2 * V0)) ** 2
+    return a * expsa * sigma_n / (2 * V0 * np.sqrt(inside_sqrt))
+
+V = 10 ** (np.linspace(-15.0, -1.0, 1000))
+f = F(V, 1.0, 0.8)
+fp = dFdV(V, 1.0, 0.8)
+fp_midpt = dFdV((V[1:] + V[:-1]) / 2.0, 1.0, 0.8)
+np.save('qd_rs_jacobian.npy', [V, f, fp])
+fp2 = (f[1:] - f[:-1]) / (V[1:] - V[:-1])
+plt.loglog(V[1:], np.abs(fp2 - fp_midpt))
+plt.loglog(V[1:], fp_midpt)#np.abs((fp_midpt - fp2) / fp_midpt))
+plt.show()
