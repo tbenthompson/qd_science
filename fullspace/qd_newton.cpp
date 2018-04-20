@@ -77,7 +77,6 @@ void rate_state_solver(NPArray<double> tri_normals, NPArray<double> traction,
         double additional_normal_stress,
         double tol, double maxiter)
 {
-    //TODO: check that as_ptr<Vec3> is working right.
     auto* tri_normals_ptr = as_ptr<Vec3>(tri_normals);
     auto* state_ptr = as_ptr<double>(state);
     auto* velocity_ptr = as_ptr<Vec3>(velocity);

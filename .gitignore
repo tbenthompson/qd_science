@@ -1,3 +1,5 @@
+*.so
+*.swp
 tags
 .ipynb_checkpoints
 *.png

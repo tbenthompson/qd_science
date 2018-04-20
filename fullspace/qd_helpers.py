@@ -41,6 +41,7 @@ def plot_fields(m, field, levels = None, cmap = 'seismic', symmetric_scale = Fal
         cntf = plt.tricontourf(m.pts[:,0], m.pts[:,2], m.tris, f, cmap = cmap, levels = f_levels, extend = 'both')
         #plt.tricontour(m.pts[:,0], m.pts[:,2], m.tris, f, levels = levels, extend = 'both', linestyles = 'solid', linewidths = 0.75, colors = '#333333')
         plt.colorbar(cntf)
+        #plt.axis('equal')
     plt.show()
 
 
@@ -77,7 +78,10 @@ def get_slip_to_traction(qdm, qd_cfg):
         #return spsolve(traction_mass_op.mat, rhs)
         out = cm2.dot(spsolve(constrained_traction_mass_op, cm2.T.dot(rhs)))
         t.report('spsolve')
-        return out
+        #return out
+        out_vec = out.reshape((-1,3))
+        out_vec[:,2] = 0.0
+        return out_vec.reshape(-1)
     return slip_to_traction
 
 class QDMeshData:
@@ -166,10 +170,31 @@ def plot_setting(t, y, qdm, qd_cfg, slip_to_traction):
     #print('deficit')
     #plot_signs(slip_deficit)
     #plot_fields(np.log10(np.abs(slip_deficit) + 1e-40))
+    print('slip')
+    plot_fields(qdm.m, slip)
     print('V')
     #plot_signs(V)
     plot_fields(qdm.m, np.log10(np.abs(V) + 1e-40))
     print('traction')
-    plot_fields(qdm.m, traction)
+    min_trac = 0.9 * np.max(traction)
+    max_trac = np.max(traction)
+    plot_fields(qdm.m, traction, levels = np.linspace(min_trac, max_trac, 20))
     print('state')
     plot_fields(qdm.m, state)
+
+    
+# INPROGRESS, NEEDS ITERATIVE SOLVE!
+def get_traction_to_slip(qdm, qd_cfg):
+    tectosaur.logger.setLevel(qd_cfg['tectosaur_cfg']['log_level'])
+    cs2 = continuity_constraints(qdm.m.get_tris('fault'), np.array([]))
+    cm2, c_rhs2 = build_constraint_matrix(cs2, qdm.m.n_dofs('fault'))
+    hypersingular_op = make_integral_op(qdm.m, 'elasticH3', [qd_cfg['sm'], qd_cfg['pr']], qd_cfg['tectosaur_cfg'], 'fault', 'fault')
+    traction_mass_op = make_mass_op(qdm.m, qd_cfg['tectosaur_cfg'])
+    constrained_traction_mass_op = cm2.T.dot(traction_mass_op.mat.dot(cm2))
+    def traction_to_slip(slip):
+        rhs = constrained_traction_mass_op()
+        rhs = hypersingular_op.dot(slip)
+        #return spsolve(traction_mass_op.mat, rhs)
+        out = cm2.dot(spsolve(constrained_traction_mass_op, cm2.T.dot(rhs)))
+        return out
+    return slip_to_traction
