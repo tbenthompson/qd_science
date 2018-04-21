@@ -11,14 +11,17 @@ from tectosaur.ops.sparse_integral_op import SparseIntegralOp, FMMFarfieldBuilde
 from tectosaur.constraint_builders import free_edge_constraints, continuity_constraints
 from tectosaur.constraints import build_constraint_matrix
 from tectosaur.util.geometry import unscaled_normals
+import tectosaur_topo.solve
 
 import cppimport.import_hook
 import qd_newton
 
-def plot_fields(m, field, levels = None, cmap = 'seismic', symmetric_scale = False, ds = None):
+def plot_fields(m, field, levels = None, cmap = 'seismic', symmetric_scale = False, ds = None, figsize = None):
     field_reshape = field.reshape(m.tris.shape[0],3,-1)
     n_fields = field_reshape.shape[2]
-    plt.figure(figsize = (6 * n_fields,5))
+    if figsize is None:
+        figsize = (6 * n_fields,5)
+    plt.figure(figsize = figsize)
     if ds is None:
         ds = range(n_fields)
     for d in ds:
@@ -66,7 +69,9 @@ def make_mass_op(m, cfg):
 
 def get_slip_to_traction(qdm, qd_cfg):
     tectosaur.logger.setLevel(qd_cfg['tectosaur_cfg']['log_level'])
+    tectosaur_topo.logger.setLevel(qd_cfg['tectosaur_cfg']['log_level'])
     cs2 = continuity_constraints(qdm.m.get_tris('fault'), np.array([]))
+    cs2.extend(free_edge_constraints(qdm.m.get_tris('fault')))
     cm2, c_rhs2 = build_constraint_matrix(cs2, qdm.m.n_dofs('fault'))
     hypersingular_op = make_integral_op(qdm.m, 'elasticH3', [qd_cfg['sm'], qd_cfg['pr']], qd_cfg['tectosaur_cfg'], 'fault', 'fault')
     traction_mass_op = make_mass_op(qdm.m, qd_cfg['tectosaur_cfg'])
@@ -77,32 +82,50 @@ def get_slip_to_traction(qdm, qd_cfg):
         t.report('H.dot')
         #return spsolve(traction_mass_op.mat, rhs)
         out = cm2.dot(spsolve(constrained_traction_mass_op, cm2.T.dot(rhs)))
-        t.report('spsolve')
+        return out
+        #t.report('spsolve')
         #return out
-        out_vec = out.reshape((-1,3))
-        out_vec[:,2] = 0.0
-        return out_vec.reshape(-1)
+        #out_vec = out.reshape((-1,3))
+        #out_vec[:,2] = 0.0
+        #return out_vec.reshape(-1)
     return slip_to_traction
+
+def get_traction_to_slip(qdm, qd_cfg):
+    tectosaur.logger.setLevel(qd_cfg['tectosaur_cfg']['log_level'])
+    tectosaur_topo.logger.setLevel(qd_cfg['tectosaur_cfg']['log_level'])
+    cs2 = continuity_constraints(qdm.m.get_tris('fault'), np.array([]))
+    cs2.extend(free_edge_constraints(qdm.m.get_tris('fault')))
+    cm2, c_rhs2 = build_constraint_matrix(cs2, qdm.m.n_dofs('fault'))
+    hypersingular_op = make_integral_op(qdm.m, 'elasticH3', [qd_cfg['sm'], qd_cfg['pr']], qd_cfg['tectosaur_cfg'], 'fault', 'fault')
+    traction_mass_op = make_mass_op(qdm.m, qd_cfg['tectosaur_cfg'])
+    #constrained_traction_mass_op = cm2.T.dot(traction_mass_op.mat.dot(cm2))
+    def traction_to_slip(traction):
+        rhs = traction_mass_op.dot(traction)
+        out = tectosaur_topo.solve.iterative_solve(
+            hypersingular_op, cm2, rhs, lambda x: x, dict(solver_tol = 1e-8)
+        )
+        return out
+    return traction_to_slip
 
 class QDMeshData:
     def __init__(self, m):
         self.m = CombinedMesh.from_named_pieces([('fault', m)])
 
-        self.tri_normals = unscaled_normals(self.m.pts[self.m.tris])
-        self.tri_normals /= np.linalg.norm(self.tri_normals, axis = 1)[:, np.newaxis]
+        self.unscaled_tri_normals = unscaled_normals(self.m.pts[self.m.tris])
+        self.tri_normals = self.unscaled_tri_normals / np.linalg.norm(self.unscaled_tri_normals, axis = 1)[:, np.newaxis]
 
         cs = free_edge_constraints(self.m.get_tris('fault'))
         cm, c_rhs = build_constraint_matrix(cs, self.m.n_dofs('fault'))
 
         constrained_slip = np.ones(cm.shape[1])
         self.ones_interior = cm.dot(constrained_slip)
-        self.slip100_interior = self.ones_interior.copy()
-        self.slip100_interior.reshape(-1,3)[:,1] = 0.0
-        self.slip100_interior.reshape(-1,3)[:,2] = 0.0
+        self.field_100_interior = self.ones_interior.copy()
+        self.field_100_interior.reshape(-1,3)[:,1] = 0.0
+        self.field_100_interior.reshape(-1,3)[:,2] = 0.0
 
-        self.slip100 = self.slip100_interior.copy()
-        self.slip100.reshape(-1,3)[:,0] = 1.0
-        self.slip100_edges = self.slip100 - self.slip100_interior
+        self.field_100 = self.field_100_interior.copy()
+        self.field_100.reshape(-1,3)[:,0] = 1.0
+        self.field_100_edges = self.field_100 - self.field_100_interior
 
 def separate_slip_state(y):
     n_total_dofs = y.shape[0]
@@ -110,20 +133,22 @@ def separate_slip_state(y):
     return y[:n_slip_dofs], y[n_slip_dofs:]
 
 def get_plate_motion(qdm, qd_cfg, t):
-    return t * qd_cfg['plate_rate'] * qdm.slip100
+    return t * qd_cfg['plate_rate'] * qdm.field_100
 
 def get_slip_deficit(qdm, qd_cfg, t, slip):
-    return qdm.ones_interior * (get_plate_motion(qdm, qd_cfg, t).reshape(-1) - slip)
+    out = qdm.ones_interior * (get_plate_motion(qdm, qd_cfg, t).reshape(-1) - slip)
+    np.testing.assert_almost_equal(qdm.field_100_edges * out, 0.0)
+    return out
 
 def rate_state_solve(qdm, qd_cfg, traction, state):
-    V = np.empty_like(qdm.slip100)
+    V = np.empty_like(qdm.field_100)
     qd_newton.rate_state_solver(
         qdm.tri_normals, traction, state, V,
         qd_cfg['a'], qd_cfg['eta'], qd_cfg['V0'],
         qd_cfg['additional_normal_stress'],
         1e-12, 50
     )
-    return qdm.slip100_edges * qd_cfg['plate_rate'] + qdm.ones_interior * V
+    return qdm.field_100_edges * qd_cfg['plate_rate'] + qdm.ones_interior * V
 
 # State evolution law -- aging law.
 def aging_law(qd_cfg, V, state):
@@ -131,8 +156,9 @@ def aging_law(qd_cfg, V, state):
         np.exp((qd_cfg['f0'] - state) / qd_cfg['b']) - (V / qd_cfg['V0'])
     )
 
-def state_evolution(qd_cfg, V, state):
+def state_evolution(qdm, qd_cfg, V, state):
     V_mag = np.linalg.norm(V.reshape(-1,3), axis = 1)
+    qdm.max_V = np.max(V_mag)
     return aging_law(qd_cfg, V_mag, state)
 
 def solve_for_full_state(qdm, qd_cfg, slip_to_traction, t, y):
@@ -146,7 +172,7 @@ def solve_for_full_state(qdm, qd_cfg, slip_to_traction, t, y):
     tm.report('slip_to_traction')
     V = rate_state_solve(qdm, qd_cfg, traction, state)
     tm.report('rate_state_solve')
-    dstatedt = state_evolution(qd_cfg, V, state)
+    dstatedt = state_evolution(qdm, qd_cfg, V, state)
     tm.report('state_evolution')
     return slip, slip_deficit, state, traction, V, dstatedt
 
@@ -181,20 +207,3 @@ def plot_setting(t, y, qdm, qd_cfg, slip_to_traction):
     plot_fields(qdm.m, traction, levels = np.linspace(min_trac, max_trac, 20))
     print('state')
     plot_fields(qdm.m, state)
-
-    
-# INPROGRESS, NEEDS ITERATIVE SOLVE!
-def get_traction_to_slip(qdm, qd_cfg):
-    tectosaur.logger.setLevel(qd_cfg['tectosaur_cfg']['log_level'])
-    cs2 = continuity_constraints(qdm.m.get_tris('fault'), np.array([]))
-    cm2, c_rhs2 = build_constraint_matrix(cs2, qdm.m.n_dofs('fault'))
-    hypersingular_op = make_integral_op(qdm.m, 'elasticH3', [qd_cfg['sm'], qd_cfg['pr']], qd_cfg['tectosaur_cfg'], 'fault', 'fault')
-    traction_mass_op = make_mass_op(qdm.m, qd_cfg['tectosaur_cfg'])
-    constrained_traction_mass_op = cm2.T.dot(traction_mass_op.mat.dot(cm2))
-    def traction_to_slip(slip):
-        rhs = constrained_traction_mass_op()
-        rhs = hypersingular_op.dot(slip)
-        #return spsolve(traction_mass_op.mat, rhs)
-        out = cm2.dot(spsolve(constrained_traction_mass_op, cm2.T.dot(rhs)))
-        return out
-    return slip_to_traction
