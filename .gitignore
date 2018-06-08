@@ -10,3 +10,9 @@ __pycache__
 .pytest_cache
 .rendered.*
 .*.cppimporthash
+*.npy
+*.gif
+*.mp4
+archive
+*.aux
+*.log

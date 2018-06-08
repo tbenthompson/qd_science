@@ -1,0 +1,115 @@
+\documentclass{article}
+\usepackage{amsmath}
+\begin{document}
+
+\section{Galerkin BEM}
+
+The elastic boundary element method (BEM) is based on Somigliana's identity:
+
+\begin{equation}
+    u(x) +
+    \int_{S} T^*(x,y) u(y) dx dy -
+    \int_{S} U^*(x,y) t(y) dx dy = 0
+\end{equation}
+
+In a typical elastic boundary value problem, either $u$, the displacement, or $t$, the traction, will be known for the entire domain boundary, $S$. The two Green's function, $U^*$ and $T^*$, connect those known boundary conditions with the other, unknown, boundary displacements or tractions via \ref{continuous}.
+
+The surface, $S$, will be discretized into a bunch of elements, commonly triangles. Then, for discretizing the integral equation itself, there are a number of approaches.  The most common is to choose a number of points on the boundary (collocation nodes) and impose the discretized integral equation at those points. That's known as a collocation method. Another option is to use a Galerkin method, where the integral equation is imposed via a weighted average on each element. In particular, the weighting functions are the same as the basis functions for the unknown solution. Let's work through some of those details, supposing that we know the displacement field everywhere on the surface and we don't the traction anywhere. So, we'd like to solve the integral equation for traction.
+
+First, the integral equation integrated against a ``test function'', $\phi(x)$ is the basis for a Galerkin BEM.
+\begin{equation}
+    \int_{S} \phi(x) \Big[ u(x) +
+\int_{S} U^*(x,y) t(y) dx dy \Big] = 0
+\end{equation}
+
+Then, let's discretize the unknown tractions by breaking up the surface into triangles and defining some basis functions over those triangles: 
+\begin{equation}
+    t(y) = \sum_{j} t_{j,d} \psi_{j,d}
+\end{equation}
+where $i$ indexes over all the triangles, and $d$ indexes over the basis functions defined on that triangle. $\psi_{i,d}$ has support only on triangle $i$, meaning that it is zero everywhere else.
+
+Inserting that into the{prior equation:
+\begin{equation}
+    \int_{S} \phi(x) \Big[ u(x) +
+    \int_{S} T^*(x,y) u(y) dx dy -
+\sum_{j} \int_{T_j} U^*(x,y) \sum_{d} t_{j,d} \psi_{j,d}(y) dx dy \Big] = 0
+\end{equation}
+
+Finally, if we set $\phi(x) = \psi_{i,d}$ for each $i$ and $d$, we get
+\begin{equation}
+    \int_{S} \psi_{i,d}(x) \Big[ u(x) +
+    \int_{S} T^*(x,y) u(y) dx dy -
+\sum_{j} \int_{T_j} U^*(x,y) \sum_{d} t_{j,d} \psi_{j,d}(y) dx dy \Big] = 0
+\end{equation}
+
+\section{Cracks}
+
+We want to study cracks. This is an interesting situation because we essentially have two surfaces with different displacements and opposite normal vectors. Generally, we assume cracks are equilibrated which means that $t^+ + t^- = 0$. As a result, the Somigliana equation on a crack reduces to:
+
+\begin{equation}
+    u(x) = -\int_{S} T^*(x,y) \Delta u(y) dx dy
+\end{equation}
+
+where $\Delta u$ is the ``crack opening displacement''. In earthquake science, we call it the slip! This is a helpful relationship for determining displacements in the volume given the slip on a crack/fault.
+
+Unfortunately, the traction on the crack does not appear in \ref{.}. 
+
+As a result, the traction boundary integral equation is necessary. Using the elastic constitutive relation to calculate stress given the Somigliana identity and then multiplying by the normal vector to $S$ produces:
+
+\begin{equation}
+    t(x) +
+    \int_{S} H^*(x,y) u(y) dx dy -
+    \int_{S} A^*(x,y) t(y) dx dy = 0
+\end{equation}
+
+For an equilibrated crack  with  (known in earthquake science as slip!) of $\Delta u$, this reduces to:
+
+\begin{equation}
+    t(x) = -\int_{S} H^*(x,y) \Delta u(y) dx dy
+\end{equation}
+
+Combined with \ref{}, this relationship is the basis of the displacement discontinuity boundary element method that is very common in earthquake science. The right hand side surface integral is split into many rectangles (OKADA) or triangles (Meade, Nikhoo). Then, an analytical formula provides the formula for either the displacement or traction resulting from those integrals of simple shapes. Generally, the slip is assumed to be constant on an element and the traction is only ever evaluated at the center of the element. But, calculating traction from constant slip patches only produces convergent results when the surface is perfectly planar and the slip patches are uniformly sized rectangles. This has limited BEM-based rate and state friction models to a very narrow set of problems involving perfectly planar faults. (Andrew Bradley did some interesting work to relax the constraint that the rectangles all be the same size. However, that work did not tackle the issue that constant slip elements cannot be used for non-planar crack surfaces. 
+
+Why are constant slip elements so limited? They inevitably produce singular stresses at the boundary between two elements. If two elements share an edge and have two different values of slip, then the change in slip will be non-zero or an infinitesimal distance near the boundary between those two elements. That results in infinite strain and thus, infinite stresses. Those singularities decay towards the center of the element, which is why when using constant slip elements, traction is only ever evaluated at the center of the element -- it is the furthest point from the singularity. However, those singularities only behave nicely in the case of uniformly sized rectangles. Intuitively, the symmetry of the rectangle results in the four edge singularities cancelling at the center of the rectangle. However, that symmetry is broken by triangular dislocation elements, non-planar faults and non-uniform element sizes.
+
+\section{Why not higher order collocation?}
+
+Collocation methods require evaluating the integral equation at the nodes of an elements rather than the weighted average of the integral equation over the entire element used in a Galerkin method. REFER TO EXPLANATION OF WHY CONTINUITY IS ESSENTIAL TO CANCELING SINGULARITIES IN gALERKIN METHOD. That evaluation at the element node produces a singular term that doesn't ever vanish unless the mesh itself has a continuous derivative (in other words, the mesh function is $C^1$). Using such ``smooth'' meshes is difficult and precludes the use of simple triangles.
+
+Andrew Bradley did some preliminary investigation into a collocation displacement discontinuity based BEM that uses $C^1$ elements.
+
+\section{Galerkin BEM for cracks}
+
+But, we want to be able to model non-planar faults! So, how?
+
+The solution is the use of linear interpolation over each element. That means that the value of slip can be continuous across the boundary between every pair of elements. Then, there is no stress singularity at element boundaries. Then, we can have non-uniform elements, non-planar faults, and use triangular elements! As an added bonus, the numerical convergence per degree of freedom is faster. 
+
+But, this approach presents its own problems. Producing analytical formulae for integrating the Green's functions over linear elements would simply be too hard.  However, numerically integrating is also a very difficult problem. REFER ELSEWHERE FOR OUR SOLUTION. One part of that problem is that the hypersingular integrals over a single triangle produce singular terms. These singular terms cancel with corresponding singular terms from the adjacent elements when displacement continuity is imposed. 
+
+However, to properly cancel the singularities that result from integrating the hypersingular integral term, both the displacement field and the test functions must be continuous. That's fine when solving for slip given a known traction field. But, when solving for traction on a crack given a known slip field, the requirement of test function continuity creates a big issue. If the test functions must be continuous, that means there will only be one test function per vertex in the mesh. But, the unknown tractions are not necessarily continuous, meaning that there will be three unknown traction vectors per triangle. Thus, there will be more unknown traction degrees of freedom than there will be test function constraints. This is no longer a Galerkin method because the basis for the unknowns is different from the basis for the test functions. But that's not the main issue. The main issue is that we have an ill-posed problem. In discrete form, the resulting linear system will be underdetermined (fewer rows than columns).  
+
+One simple solution is to require that the tractions be continuous. This is numerically simple but doesn't make physical sense and results in big problems. Why? There is a single stress tensor for a point at the boundary between two elements. If those two elements have different normal vectors, then the traction on those elements at the shared point will be different, contradicting our assumption that the traction be continuous. So, the requirement that traction be continuous is identical to the requirement that there never be any sharp changes in the normal vector. In other words, that the mesh be $C^1$ -- it has a continuous derivative. So, we're right back where we started with the collocation methods and stuck with a $C^1$ mesh that is super hard to implement. So, then why use this Galerkin approach anyway? 
+
+\section{The Galerkin Dual BEM for cracks}
+
+One solution is to reformulate the problem and not exclusively use the traction integral equation. An interesting approach is to back up to the derivation of the crack boundary integral equation (reference the EQ). Previously, we've either imposed the displacement BIE on both sides of the crack (REF) or the traction BIE on both sides (REF). Using the displacement BIE is problematic because the traction terms drop out. Using the traction BIE is problematic because it requires a $C^1$ mesh. So, what if we impose the displacement BIE on one side of the crack and the traction BIE on the other side of the crack? 
+
+\begin{equation}
+    \int_{C^+} t'(x) \Big[ u(x) +
+    \int_{S} T^*(x,y) u(y) dx dy -
+    \int_{S} U^*(x,y) t(y) dx dy \Big] = 0
+\end{equation}
+
+\begin{equation}
+    \int_{C^-} u'(x) \Big[ \int_{S} t(x) +
+    \int_{S} H^*(x,y) u(y) dx dy -
+    \int_{S} A^*(x,y) t(y) dx dy \Big] = 0
+\end{equation}
+
+plus the constraints that $u_{C^+} - u_{C^-} = \Delta u$ with $\Delta u$ a known slip field and the constraint that $t_{C^+} + t_{C^-} = 0$. And, of course, $u$ and $u'$ are both continuous. The resulting system of equations has $2N_V$ unknown displacements and $2N_{C}$ unknown tractions, for a total of $2(N_C N_C)$ unknowns. It also has $N_V$ slip imposition constraints, $N_C$ traction equilibration constraints, $N_C$ displacement integral equation constraints, $N_V$ traction integral equation constraints, for a total of $2(N_C N_C)$ constraints. The resulting linear system is well-posed and invertible.
+
+So, we've gotten the best of both worlds. The traction terms don't drop out and the mesh is only required to be $C^0$ (traction continuity was not imposed!). I think this combination of Galerkin methods and the ``dual'' BEM approach (one of each BIE) to cracks is the first ever BEM algorithm that allows solving for traction given slip on a non-planar non-smooth crack. The downside is that the linear system is much larger than the alternatives.
+
+Also, it works. Well. 
+
+\end{document}
